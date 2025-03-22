@@ -24,3 +24,20 @@ body {
   color: rgb(255, 255, 255);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+button{
+  background-color: rgb(50, 33, 33);
+  color: var(--color-foreground);
+  border: none;
+  padding: 10px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 16px;
+  margin: 4px 2px;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #3d3131;
+}

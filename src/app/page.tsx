@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from 'next/router'
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
@@ -7,6 +8,7 @@ const ProductCheckout = () => {
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
+  const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [orderId, setOrderId] = useState(null);
@@ -244,58 +246,73 @@ const ProductCheckout = () => {
   };
 
   const checkPaymentStatus = async (orderId) => {
-      try {
-          // Panggil API untuk memeriksa status pembayaran
-          const response = await axios.get(`http://127.0.0.1:8000/api/payments/status/${orderId}`);
-          
-          // Pastikan response.data ada
-          if (!response.data) {
-              throw new Error('Tidak ada data yang diterima dari server');
-          }
-
-          // Periksa status pembayaran
-          const paymentStatus = response.data.data?.status || response.data.status; // Sesuaikan dengan struktur response backend
-          switch (paymentStatus) {
-              case 'paid':
-              case 'success':
-                  alert('Pembayaran berhasil!');
-                  setCart([]);
-                  setIsCheckoutModalOpen(false);
-                  // Redirect ke halaman sukses
-                  window.location.href = `http://127.0.0.1:8000/api/payments/finish?order_id=${orderId}`;
-                  break;
-
-              case 'pending':
-                  alert('Pembayaran dalam proses. Kami akan memberitahu Anda jika sudah selesai.');
-                  setIsCheckoutModalOpen(false);
-                  break;
-
-              case 'failed':
-                  alert('Pembayaran gagal. Silakan coba lagi atau hubungi tim support.');
-                  setIsCheckoutModalOpen(false);
-                  break;
-
-              default:
-                  alert('Status pembayaran tidak diketahui: ' + paymentStatus);
-                  setIsCheckoutModalOpen(false);
-          }
-      } catch (err) {
-          console.error('Error checking payment status:', err);
-          
-          // Tampilkan pesan error yang lebih spesifik
-          if (err.response) {
-              // Error dari server (misalnya, 4xx atau 5xx)
-              alert(`Gagal memeriksa status pembayaran: ${err.response.data.message || err.response.statusText}`);
-          } else if (err.request) {
-              // Tidak ada response dari server
-              alert('Tidak ada respons dari server. Periksa koneksi internet Anda.');
-          } else {
-              // Error lainnya
-              alert('Terjadi kesalahan saat memeriksa status pembayaran: ' + err.message);
-          }
-
+    try {
+      const response = await axios.get(`http://127.0.0.1:8000/api/payments/status/${orderId}`);
+      const paymentStatus = response.data.data?.status || response.data.status;
+  
+      switch (paymentStatus) {
+        case 'paid':
+        case 'success':
+          setIsSuccessModalOpen(true); // Tampilkan modal sukses
+          setIsCheckoutModalOpen(false); // Tutup modal proses pembayaran
+          setCart([]); // Kosongkan keranjang
+          break;
+  
+        case 'pending':
+          alert('Pembayaran dalam proses. Kami akan memberitahu Anda jika sudah selesai.');
+          setIsCheckoutModalOpen(false);
+          break;
+  
+        case 'failed':
+          alert('Pembayaran gagal. Silakan coba lagi atau hubungi tim support.');
+          setIsCheckoutModalOpen(false);
+          break;
+  
+        default:
+          alert('Status pembayaran tidak diketahui: ' + paymentStatus);
           setIsCheckoutModalOpen(false);
       }
+    } catch (err) {
+      console.error('Error checking payment status:', err);
+      alert('Terjadi kesalahan saat memeriksa status pembayaran: ' + err.message);
+      setIsCheckoutModalOpen(false);
+    }
+
+  };
+
+  const SuccessModal = ({ isOpen, onClose }) => {
+    if (!isOpen) return null;
+  
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-8 max-w-md w-full text-center">
+          <svg
+            className="w-16 h-16 mx-auto text-green-500"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M5 13l4 4L19 7"
+            />
+          </svg>
+          <h2 className="text-2xl font-bold mt-4">Pembayaran Berhasil!</h2>
+          <p className="text-gray-600 mt-2">
+            Terima kasih telah berbelanja dengan kami. Pesanan Anda sedang diproses.
+          </p>
+          <button
+            className="mt-6 bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600"
+            onClick={onClose}
+          >
+            Tutup
+          </button>
+        </div>
+      </div>
+    );
   };
 
   // Fungsi untuk mendapatkan data dummy jika API tidak berfungsi
@@ -368,7 +385,7 @@ const ProductCheckout = () => {
                     <span className="text-gray-500">No Image</span>
                   </div>
                 )}
-                <h3 className="text-lg font-black font-semibold">{product.name}</h3>
+                <h3 className="text-lg font-black font-semibold text-gray-600">{product.name}</h3>
                 <p className="text-gray-600 mb-2">{product.description}</p>
                 <p className="text-xl font-bold text-blue-600 mb-4">{formatPrice(product.price)}</p>
                 
@@ -403,24 +420,24 @@ const ProductCheckout = () => {
 
         {/* Shopping Cart */}
         <div className="w-full lg:w-1/3">
-          <div className="bg-grey rounded-lg shadow-md p-6 sticky top-4">
-            <h2 className="text-xl font-bold mb-6">Keranjang Belanja</h2>
+          <div className="bg-white rounded-lg shadow-md p-6 sticky top-4">
+            <h2 className="text-xl text-gray-500 font-bold mb-6">Keranjang Belanja</h2>
             
             {cart.length === 0 ? (
-              <p className="text-black-500">Keranjang belanja kosong.</p>
+              <p className="text-gray-800 font-bold">Keranjang belanja kosong.</p>
             ) : (
               <>
                 <div className="space-y-4 mb-6">
                   {cart.map(item => (
                     <div key={item.id} className="flex justify-between border-b pb-2">
                       <div>
-                        <h4 className="font-medium">{item.name}</h4>
+                        <h4 className="font-medium text-gray-600">{item.name}</h4>
                         <p className="text-sm text-gray-600">
                           {formatPrice(item.price)} x {item.quantity}
                         </p>
                       </div>
                       <div className="flex items-center">
-                        <p className="font-medium mr-2">
+                        <p className="font-medium mr-2 text-gray-600">
                           {formatPrice(item.price * item.quantity)}
                         </p>
                         <button 
@@ -435,7 +452,7 @@ const ProductCheckout = () => {
                 </div>
 
                 <div className="border-t pt-4">
-                  <div className="flex justify-between font-bold text-lg mb-6">
+                  <div className="flex justify-between font-bold text-lg mb-6 text-gray-600">
                     <span>Total:</span>
                     <span>{formatPrice(getTotalPrice())}</span>
                   </div>
@@ -464,6 +481,11 @@ const ProductCheckout = () => {
           </div>
         </div>
       )}
+
+      <SuccessModal
+        isOpen={isSuccessModalOpen}
+        onClose={() => setIsSuccessModalOpen(false)}
+      />
     </div>
   );
 };
