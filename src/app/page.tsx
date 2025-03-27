@@ -9,9 +9,50 @@ const ProductCheckout = () => {
   const [cart, setCart] = useState([]);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
+  const [isCustomerFormOpen, setIsCustomerFormOpen] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentAmountError, setPaymentAmountError] = useState('');
+  const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [formErrors, setFormErrors] = useState({});
+  const [customerInfo, setCustomerInfo] = useState({ // Add this line
+    first_name: "",
+    email: "",
+    phone: "",
+    payment_amount: ""
+  });
+  const validateForm = () => {
+    const errors = {};
+    if (!customerInfo.first_name.trim()) {
+      errors.first_name = "Nama wajib diisi";
+    }
+    
+    if (!customerInfo.email.trim()) {
+      errors.email = "Email wajib diisi";
+    } else if (!/\S+@\S+\.\S+/.test(customerInfo.email)) {
+      errors.email = "Format email tidak valid";
+    }
+    
+    if (!customerInfo.phone.trim()) {
+      errors.phone = "Nomor telepon wajib diisi";
+    } else if (!/^[0-9]{10,13}$/.test(customerInfo.phone.replace(/\D/g, ''))) {
+      errors.phone = "Nomor telepon tidak valid (10-13 digit)";
+    }
+    
+    setFormErrors(errors); // Update form errors
+    return Object.keys(errors).length === 0; // Return true if no errors
+  };
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [orderId, setOrderId] = useState(null);
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setCustomerInfo({
+      ...customerInfo,
+      [name]: value
+    });
+  };
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Fetch products from Laravel API
   useEffect(() => {
@@ -166,31 +207,51 @@ const ProductCheckout = () => {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(price);
   };
 
+  const validatePaymentAmount = () => {
+    const totalPrice = getTotalPrice();
+    const amount = parseFloat(paymentAmount);
+
+    if (!paymentAmount.trim()) {
+      setPaymentAmountError('Nominal pembayaran wajib diisi');
+      return false;
+    }
+
+    if (isNaN(amount)) {
+      setPaymentAmountError('Nominal pembayaran harus berupa angka');
+      return false;
+    }
+
+    if (amount < totalPrice) {
+      setPaymentAmountError(`Nominal pembayaran kurang dari total tagihan (${formatPrice(totalPrice)})`);
+      return false;
+    }
+
+    setPaymentAmountError('');
+    return true;
+  };
+
   const handleCheckout = async () => {
-    
+    setIsCustomerFormOpen(false);
     setIsCheckoutModalOpen(true);
     
     try {
-
-      const userDetails = {
-        nama: "Customer Name", // Replace with actual user input
-        email: "customer@example.com", // Replace with actual user input
-        phone: "081234567890" // Replace with actual user input
-      };
-      // Prepare the order data
+      // Prepare the order data using customer information
       const orderData = {
-        ...userDetails,
+        first_name: customerInfo.first_name,
+        email: customerInfo.email,
+        phone: customerInfo.phone,
+        payment_amount: parseFloat(paymentAmount) || 0,
         items: cart.map(item => ({
           product_id: item.id,
           quantity: item.quantity
         }))
       };
-
+  
       // Call the initiatePayment endpoint
-      const response = await axios.post('http://127.0.0.1:8000/api/payments', orderData)
+      const response = await axios.post('http://127.0.0.1:8000/api/payments', orderData);
       console.log("Full response:", response);
       console.log("Response data:", response.data);
-
+  
       console.log("Payment response:", response.data);
       
       // Store the order ID for status checking
@@ -202,48 +263,53 @@ const ProductCheckout = () => {
       if (response.data && response.data.data && response.data.data.snap_token) {
         const snapToken = response.data.data.snap_token;
     
-        console.log("Snap token found:", snapToken);
-    
-        // Check if window.snap is available
         if (typeof window !== 'undefined' && window.snap) {
-            window.snap.pay(snapToken, {
-                onSuccess: function(result) {
-                    checkPaymentStatus(response.data.data.order_id);
-                },
-                onPending: function(result) {
-                    checkPaymentStatus(response.data.data.order_id);
-                },
-                onError: function(result) {
-                    alert('Pembayaran gagal: ' + result.status_message);
-                    setIsCheckoutModalOpen(false);
-                },
-                onClose: function() {
-                    alert('Anda menutup popup tanpa menyelesaikan pembayaran');
-                    setIsCheckoutModalOpen(false);
-                }
-            });
+          window.snap.pay(snapToken, {
+            onSuccess: function(result) {
+              checkPaymentStatus(response.data.data.order_id);
+            },
+            onPending: function(result) {
+              checkPaymentStatus(response.data.data.order_id);
+            },
+            onError: function(result) {
+              setErrorMessage(result.status_message || 'Pembayaran gagal');
+              setIsErrorModalOpen(true);
+              setIsCheckoutModalOpen(false);
+            },
+            onClose: function() {
+              setErrorMessage('Anda menutup popup tanpa menyelesaikan pembayaran');
+              setIsErrorModalOpen(true);
+              setIsCheckoutModalOpen(false);
+            }
+          });
         } else {
-            console.error("Midtrans Snap not loaded");
-            alert('Midtrans tidak tersedia. Pastikan Anda telah menyertakan script Snap.js');
-            setIsCheckoutModalOpen(false);
+          setErrorMessage('Midtrans tidak tersedia. Pastikan Anda telah menyertakan script Snap.js');
+          setIsErrorModalOpen(true);
+          setIsCheckoutModalOpen(false);
         }
-        } else {
-            throw new Error('Tidak mendapatkan token pembayaran');
-        }
+      } else {
+        throw new Error('Tidak mendapatkan token pembayaran');
+      }
     } catch (err) {
       console.error('Checkout error:', err);
-      if (err.response) {
-        console.error('Error status:', err.response.status);
-        console.error('Error data:', err.response.data);
-      } else if (err.request) {
-        console.error('No response received:', err.request);
-      } else {
-        console.error('Error message:', err.message);
-      } 
-      alert('Terjadi kesalahan saat checkout: ' + (err.response?.data?.message || err.message));
+      setErrorMessage(err.response?.data?.message || err.message || 'Terjadi kesalahan saat checkout');
+      setIsErrorModalOpen(true);
       setIsCheckoutModalOpen(false);
+    } finally {
+      setIsSubmitting(false);
     }
   };
+
+  // const handleSubmitCustomerForm = (e) => {
+  //   e.preventDefault();
+  //   setIsSubmitting(true);
+    
+  //   if (validateForm() && validatePaymentAmount()) {
+  //     handleCheckout();
+  //   } else {
+  //     setIsSubmitting(false);
+  //   }
+  // };
 
   const checkPaymentStatus = async (orderId) => {
     try {
@@ -253,31 +319,34 @@ const ProductCheckout = () => {
       switch (paymentStatus) {
         case 'paid':
         case 'success':
-          setIsSuccessModalOpen(true); // Tampilkan modal sukses
-          setIsCheckoutModalOpen(false); // Tutup modal proses pembayaran
-          setCart([]); // Kosongkan keranjang
+          setIsSuccessModalOpen(true);
+          setIsCheckoutModalOpen(false);
+          setCart([]);
           break;
   
         case 'pending':
-          alert('Pembayaran dalam proses. Kami akan memberitahu Anda jika sudah selesai.');
+          setErrorMessage('Pembayaran dalam proses. Kami akan memberitahu Anda jika sudah selesai.');
+          setIsErrorModalOpen(true);
           setIsCheckoutModalOpen(false);
           break;
   
         case 'failed':
-          alert('Pembayaran gagal. Silakan coba lagi atau hubungi tim support.');
+          setErrorMessage('Pembayaran gagal. Silakan coba lagi atau hubungi tim support.');
+          setIsErrorModalOpen(true);
           setIsCheckoutModalOpen(false);
           break;
   
         default:
-          alert('Status pembayaran tidak diketahui: ' + paymentStatus);
+          setErrorMessage(`Status pembayaran tidak diketahui: ${paymentStatus}`);
+          setIsErrorModalOpen(true);
           setIsCheckoutModalOpen(false);
       }
     } catch (err) {
       console.error('Error checking payment status:', err);
-      alert('Terjadi kesalahan saat memeriksa status pembayaran: ' + err.message);
+      setErrorMessage('Terjadi kesalahan saat memeriksa status pembayaran: ' + err.message);
+      setIsErrorModalOpen(true);
       setIsCheckoutModalOpen(false);
     }
-
   };
 
   const SuccessModal = ({ isOpen, onClose }) => {
@@ -315,6 +384,63 @@ const ProductCheckout = () => {
     );
   };
 
+  const ErrorModal = ({ isOpen, onClose, errorMessage, orderId }) => {
+    if (!isOpen) return null;
+  
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-8 max-w-md w-full text-center">
+          <div className="flex items-center justify-center text-red-500 mb-4">
+            <svg
+              className="w-16 h-16"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+          </div>
+          <h2 className="text-2xl text-gray-950 font-bold mt-4">Pembayaran Gagal!</h2>
+          <p className="text-gray-600 mt-2">{errorMessage}</p>
+          
+          {orderId && (
+            <div className="bg-gray-100 p-3 rounded mt-4 text-sm">
+              <p>Order ID: <span className="font-mono">{orderId}</span></p>
+            </div>
+          )}
+          
+          <button
+            className="mt-6 bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600"
+            onClick={onClose}
+          >
+            Tutup
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const handleOpenCustomerForm = () => {
+    setIsCustomerFormOpen(true); // Add this function
+  };
+
+  const handleSubmitCustomerForm = (e) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    
+    if (validateForm()) {
+      handleCheckout();
+    } else {
+      setIsSubmitting(false);
+    }
+  };
+  
   // Fungsi untuk mendapatkan data dummy jika API tidak berfungsi
   const getDummyProducts = () => {
     return [
@@ -332,13 +458,6 @@ const ProductCheckout = () => {
         description: "Laptop ringan dengan performa maksimal",
         image_url: null
       },
-      {
-        id: 3,
-        name: "Headphone Premium",
-        price: 850000,
-        description: "Headphone dengan noise cancellation",
-        image_url: null
-      }
     ];
   };
 
@@ -456,13 +575,127 @@ const ProductCheckout = () => {
                     <span>Total:</span>
                     <span>{formatPrice(getTotalPrice())}</span>
                   </div>
-                  <button
-                    className="w-full bg-green-500 text-white py-3 rounded-lg hover:bg-green-600 font-medium"
-                    onClick={handleCheckout}
-                    disabled={cart.length === 0}
-                  >
-                    Checkout
-                  </button>
+
+                  {isCustomerFormOpen ? (
+                    <form onSubmit={handleSubmitCustomerForm}>
+                      <div className="mb-4">
+                        <label className="block text-gray-700 mb-2" htmlFor="first_name">
+                          Nama Lengkap <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          id="first_name"
+                          name="first_name"
+                          type="text"
+                          className={`w-full px-3 py-2 border text-gray-700 rounded-lg ${formErrors.first_name ? 'border-red-500' : 'border-gray-300'}`}
+                          value={customerInfo.first_name}
+                          onChange={handleInputChange}
+                          placeholder="Masukkan nama lengkap"
+                        />
+                        {formErrors.first_name && (
+                          <p className="text-red-500 text-sm mt-1">{formErrors.first_name}</p>
+                        )}
+                      </div>
+                      
+                      <div className="mb-4">
+                        <label className="block text-gray-700 mb-2" htmlFor="email">
+                          Email <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          id="email"
+                          name="email"
+                          type="email"
+                          className={`w-full px-3 py-2 border text-gray-700 rounded-lg ${formErrors.email ? 'border-red-500' : 'border-gray-300'}`}
+                          value={customerInfo.email}
+                          onChange={handleInputChange}
+                          placeholder="Masukkan alamat email"
+                        />
+                        {formErrors.email && (
+                          <p className="text-red-500 text-sm mt-1">{formErrors.email}</p>
+                        )}
+                      </div>
+                      
+                      <div className="mb-6">
+                        <label className="block text-gray-700 mb-2" htmlFor="phone">
+                          Nomor Telepon <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          id="phone"
+                          name="phone"
+                          type="tel"
+                          className={`w-full px-3 py-2 border text-gray-700 rounded-lg ${formErrors.phone ? 'border-red-500' : 'border-gray-300'}`}
+                          value={customerInfo.phone}
+                          onChange={handleInputChange}
+                          placeholder="Masukkan nomor telepon"
+                        />
+                        {formErrors.phone && (
+                          <p className="text-red-500 text-sm mt-1">{formErrors.phone}</p>
+                        )}
+                      </div>
+
+                      {/* <div className="mb-4">
+                        <label className="block text-gray-700 mb-2" htmlFor="payment_amount">
+                          Nominal Pembayaran <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          id="payment_amount"
+                          name="payment_amount"
+                          type="text"
+                          className={`w-full px-3 py-2 border text-gray-700 rounded-lg ${paymentAmountError ? 'border-red-500' : 'border-gray-300'}`}
+                          value={paymentAmount}
+                          onChange={(e) => {
+                            // Only allow numeric input
+                            const value = e.target.value.replace(/[^0-9]/g, '');
+                            setPaymentAmount(value);
+                          }}
+                          placeholder="Masukkan nominal pembayaran"
+                        />
+                        {paymentAmountError && (
+                          <p className="text-red-500 text-sm mt-1">{paymentAmountError}</p>
+                        )}
+                        
+                        {/* Show total price and payment guidance */}
+                        {/* <div className="mt-2 text-sm text-gray-600">
+                          Total Tagihan: {formatPrice(getTotalPrice())}
+                        </div>
+                      </div> */} */}
+                      
+                      <div className="flex justify-between">
+                        <button
+                          type="button"
+                          className="bg-gray-300 text-gray-800 px-6 py-2 rounded-lg hover:bg-gray-400"
+                          onClick={() => setIsCustomerFormOpen(false)}
+                        >
+                          Batal
+                        </button>
+                        <button
+                          type="submit"
+                          className="bg-green-500 text-white px-6 py-2 rounded-lg hover:bg-green-600"
+                          disabled={isSubmitting}
+                        >
+                          {isSubmitting ? (
+                            <span className="flex items-center">
+                              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              Proses...
+                            </span>
+                          ) : (
+                            "Lanjutkan ke Pembayaran"
+                          )}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <button
+                      className="w-full bg-green-500 text-white py-3 rounded-lg hover:bg-green-600 font-medium"
+                      onClick={handleOpenCustomerForm}
+                      
+                      disabled={cart.length === 0}
+                    >
+                      Checkout
+                    </button>
+                  )}
                 </div>
               </>
             )}
@@ -486,6 +719,15 @@ const ProductCheckout = () => {
         isOpen={isSuccessModalOpen}
         onClose={() => setIsSuccessModalOpen(false)}
       />
+
+      <ErrorModal
+      isOpen={isErrorModalOpen}
+      onClose={() => setIsErrorModalOpen(false)}
+      errorMessage={errorMessage}
+      orderId={orderId}
+    />
+
+      
     </div>
   );
 };
